@@ -10,7 +10,7 @@ invoiceQueue.process(async (job) => {
 
   try {
     // 1. Mark PROCESSING
-    storageService.updateDocumentStatus(documentId, 'PROCESSING');
+    await storageService.updateDocumentStatus(documentId, 'PROCESSING');
 
     // 2. Extract
     const { extractedData } = await extractionService.extract(
@@ -20,19 +20,19 @@ invoiceQueue.process(async (job) => {
     // 3. Validate
     const validationResult = validationService.validate(extractedData);
 
-    // 4. Save extraction row (upsert — reprocess may overwrite)
-    storageService.upsertExtraction(documentId, extractedData, validationResult);
+    // 4. Save extraction row
+    await storageService.upsertExtraction(documentId, extractedData, validationResult);
 
     // 5. Mark COMPLETED
     const processingMs = Date.now() - startTime;
-    storageService.updateDocumentCompleted(documentId, processingMs, promptVersion);
+    await storageService.updateDocumentCompleted(documentId, processingMs, promptVersion);
 
     logger.info(`Document ${documentId} completed in ${processingMs}ms`);
   } catch (err) {
     const processingMs = Date.now() - startTime;
-    storageService.updateDocumentFailed(documentId, err.message, processingMs);
+    await storageService.updateDocumentFailed(documentId, err.message, processingMs);
     logger.error(`Document ${documentId} failed: ${err.message}`);
-    throw err; // rethrow so Bull marks job as failed and triggers retry
+    throw err;
   }
 });
 

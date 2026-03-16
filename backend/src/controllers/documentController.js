@@ -1,4 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const fs = require('fs');
 const storageService = require('../services/storageService');
 const invoiceQueue = require('../config/queue');
 
@@ -13,8 +15,8 @@ async function uploadDocuments(req, res, next) {
 
     for (const file of req.files) {
       const id = uuidv4();
-      
-      storageService.insertDocument({
+
+      await storageService.insertDocument({
         id,
         filename: file.originalname,
         filePath: file.path
@@ -38,19 +40,19 @@ async function uploadDocuments(req, res, next) {
   }
 }
 
-function getDocuments(req, res, next) {
+async function getDocuments(req, res, next) {
   try {
     const statusFilter = req.query.status;
-    const documents = storageService.listDocuments(statusFilter);
+    const documents = await storageService.listDocuments(statusFilter);
     res.json(documents);
   } catch (error) {
     next(error);
   }
 }
 
-function getDocument(req, res, next) {
+async function getDocument(req, res, next) {
   try {
-    const document = storageService.getDocument(req.params.id);
+    const document = await storageService.getDocument(req.params.id);
     if (!document) {
       return res.status(404).json({ error: 'Document not found' });
     }
@@ -60,14 +62,14 @@ function getDocument(req, res, next) {
   }
 }
 
-function updateDocumentCorrection(req, res, next) {
+async function updateDocumentCorrection(req, res, next) {
   try {
-    const document = storageService.getDocument(req.params.id);
+    const document = await storageService.getDocument(req.params.id);
     if (!document) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    storageService.saveCorrection(req.params.id, req.body);
+    await storageService.saveCorrection(req.params.id, req.body);
     
     res.json({
       success: true,
@@ -81,13 +83,13 @@ function updateDocumentCorrection(req, res, next) {
 async function reprocessDocument(req, res, next) {
   try {
     const id = req.params.id;
-    const document = storageService.getDocument(id);
+    const document = await storageService.getDocument(id);
     
     if (!document) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    storageService.updateDocumentStatus(id, 'PENDING');
+    await storageService.updateDocumentStatus(id, 'PENDING');
     
     const promptVersion = process.env.PROMPT_VERSION || 'v2';
     
@@ -107,9 +109,9 @@ async function reprocessDocument(req, res, next) {
   }
 }
 
-function getMetrics(req, res, next) {
+async function getMetrics(req, res, next) {
   try {
-    const metrics = storageService.getMetrics();
+    const metrics = await storageService.getMetrics();
     res.json(metrics);
   } catch (error) {
     next(error);

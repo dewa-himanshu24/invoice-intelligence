@@ -1,193 +1,191 @@
-const db = require('../config/database');
+const supabase = require('../config/supabase');
 
-function insertDocument({ id, filename, filePath }) {
-  const stmt = db.prepare(`
-    INSERT INTO documents (id, filename, file_path, status)
-    VALUES (?, ?, ?, 'PENDING')
-  `);
-  stmt.run(id, filename, filePath);
+async function insertDocument({ id, filename, filePath }) {
+  const { error } = await supabase
+    .from('documents')
+    .insert([{ 
+      id, 
+      filename, 
+      file_path: filePath, 
+      status: 'PENDING' 
+    }]);
+
+  if (error) throw error;
 }
 
-function updateDocumentStatus(id, status) {
-  const stmt = db.prepare(`
-    UPDATE documents 
-    SET status = ?, updated_at = datetime('now') 
-    WHERE id = ?
-  `);
-  stmt.run(status, id);
+async function updateDocumentStatus(id, status) {
+  const { error } = await supabase
+    .from('documents')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id);
+    
+  if (error) throw error;
 }
 
-function updateDocumentCompleted(id, processingMs, promptVersion) {
-  const stmt = db.prepare(`
-    UPDATE documents 
-    SET status = 'COMPLETED', error_message = NULL, processing_ms = ?, prompt_version = ?, updated_at = datetime('now') 
-    WHERE id = ?
-  `);
-  stmt.run(processingMs, promptVersion, id);
+async function updateDocumentCompleted(id, processingMs, promptVersion) {
+  const { error } = await supabase
+    .from('documents')
+    .update({ 
+      status: 'COMPLETED', 
+      error_message: null, 
+      processing_ms: processingMs, 
+      prompt_version: promptVersion, 
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', id);
+    
+  if (error) throw error;
 }
 
-function updateDocumentFailed(id, errorMessage, processingMs) {
-  const stmt = db.prepare(`
-    UPDATE documents 
-    SET status = 'FAILED', error_message = ?, processing_ms = ?, updated_at = datetime('now') 
-    WHERE id = ?
-  `);
-  stmt.run(errorMessage, processingMs, id);
+async function updateDocumentFailed(id, errorMessage, processingMs) {
+  const { error } = await supabase
+    .from('documents')
+    .update({ 
+      status: 'FAILED', 
+      error_message: errorMessage, 
+      processing_ms: processingMs, 
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', id);
+    
+  if (error) throw error;
 }
 
-function upsertExtraction(documentId, extractedData, validationResult) {
+async function upsertExtraction(documentId, extractedData, validationResult) {
   const { normalizedData, missingFields, validationErrors, confidenceScore, isValid } = validationResult;
   
-  const stmt = db.prepare(`
-    INSERT INTO extractions (
-      id, document_id, vendor_name, invoice_number, invoice_date, currency, 
-      total_amount, tax_amount, line_items, raw_json, confidence_score, 
-      validation_errors, missing_fields, is_valid
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-    )
-    ON CONFLICT(document_id) DO UPDATE SET
-      vendor_name = excluded.vendor_name,
-      invoice_number = excluded.invoice_number,
-      invoice_date = excluded.invoice_date,
-      currency = excluded.currency,
-      total_amount = excluded.total_amount,
-      tax_amount = excluded.tax_amount,
-      line_items = excluded.line_items,
-      raw_json = excluded.raw_json,
-      confidence_score = excluded.confidence_score,
-      validation_errors = excluded.validation_errors,
-      missing_fields = excluded.missing_fields,
-      is_valid = excluded.is_valid
-  `);
+  const { data: existing } = await supabase
+    .from('extractions')
+    .select('id')
+    .eq('document_id', documentId)
+    .single();
 
-  const uuid = require('uuid').v4;
-  
-  stmt.run(
-    uuid(),
-    documentId,
-    normalizedData.vendor_name,
-    normalizedData.invoice_number,
-    normalizedData.invoice_date,
-    normalizedData.currency,
-    normalizedData.total_amount,
-    normalizedData.tax_amount,
-    JSON.stringify(normalizedData.line_items || []),
-    JSON.stringify(normalizedData),
-    confidenceScore,
-    JSON.stringify(validationErrors || []),
-    JSON.stringify(missingFields || []),
-    isValid ? 1 : 0
-  );
+  const extractionData = {
+    document_id: documentId,
+    vendor_name: normalizedData.vendor_name,
+    invoice_number: normalizedData.invoice_number,
+    invoice_date: normalizedData.invoice_date,
+    currency: normalizedData.currency,
+    total_amount: normalizedData.total_amount,
+    tax_amount: normalizedData.tax_amount,
+    line_items: normalizedData.line_items || [],
+    raw_json: normalizedData,
+    confidence_score: confidenceScore,
+    validation_errors: validationErrors || [],
+    missing_fields: missingFields || [],
+    is_valid: isValid
+  };
+
+  if (existing) {
+    const { error } = await supabase
+      .from('extractions')
+      .update(extractionData)
+      .eq('document_id', documentId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('extractions')
+      .insert([{ id: require('uuid').v4(), ...extractionData }]);
+    if (error) throw error;
+  }
 }
 
-function getDocument(id) {
-  const docStmt = db.prepare(`SELECT * FROM documents WHERE id = ?`);
-  const doc = docStmt.get(id);
-  if (!doc) return null;
+async function getDocument(id) {
+  const { data: doc, error: docError } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('id', id)
+    .single();
 
-  const extStmt = db.prepare(`SELECT * FROM extractions WHERE document_id = ?`);
-  const extraction = extStmt.get(id);
+  if (docError || !doc) return null;
 
-  if (extraction) {
-    if (extraction.line_items) extraction.line_items = JSON.parse(extraction.line_items);
-    if (extraction.raw_json) extraction.raw_json = JSON.parse(extraction.raw_json);
-    if (extraction.validation_errors) extraction.validation_errors = JSON.parse(extraction.validation_errors);
-    if (extraction.missing_fields) extraction.missing_fields = JSON.parse(extraction.missing_fields);
-    if (extraction.corrected_data) extraction.corrected_data = JSON.parse(extraction.corrected_data);
-    extraction.is_valid = Boolean(extraction.is_valid);
-  }
+  const { data: extraction } = await supabase
+    .from('extractions')
+    .select('*')
+    .eq('document_id', id)
+    .single();
 
   return { ...doc, extraction };
 }
 
-function listDocuments(statusFilter) {
-  let query = `
-    SELECT d.id, d.filename, d.status, d.prompt_version, d.processing_ms, d.created_at,
-           e.confidence_score, e.is_valid, e.missing_fields
-    FROM documents d
-    LEFT JOIN extractions e ON d.id = e.document_id
-  `;
-  const params = [];
+async function listDocuments(statusFilter) {
+  let query = supabase
+    .from('documents')
+    .select(`
+      id, filename, status, prompt_version, processing_ms, created_at,
+      extractions ( confidence_score, is_valid, missing_fields )
+    `)
+    .order('created_at', { ascending: false });
 
   if (statusFilter) {
-    query += ` WHERE d.status = ?`;
-    params.push(statusFilter);
+    query = query.eq('status', statusFilter);
   }
 
-  query += ` ORDER BY d.created_at DESC`;
-
-  const rows = db.prepare(query).all(...params);
+  const { data, error } = await query;
+  if (error) throw error;
   
-  return rows.map(row => {
-    if (row.missing_fields) {
-      row.missing_fields = JSON.parse(row.missing_fields);
-    }
-    if (row.is_valid !== null) {
-      row.is_valid = Boolean(row.is_valid);
-    }
-    return row;
-  });
+  return data.map(row => ({
+    ...row,
+    confidence_score: row.extractions?.confidence_score,
+    is_valid: row.extractions?.is_valid,
+    missing_fields: row.extractions?.missing_fields
+  }));
 }
 
-function saveCorrection(id, correctedData) {
-  const stmt = db.prepare(`
-    UPDATE extractions 
-    SET corrected_data = ? 
-    WHERE document_id = ?
-  `);
-  stmt.run(JSON.stringify(correctedData), id);
+async function saveCorrection(id, correctedData) {
+  const { error } = await supabase
+    .from('extractions')
+    .update({ corrected_data: correctedData })
+    .eq('document_id', id);
+  if (error) throw error;
 }
 
-function getMetrics() {
-  const total = db.prepare(`SELECT COUNT(*) as count FROM documents`).get().count;
-  const completed = db.prepare(`SELECT COUNT(*) as count FROM documents WHERE status = 'COMPLETED'`).get().count;
-  const failed = db.prepare(`SELECT COUNT(*) as count FROM documents WHERE status = 'FAILED'`).get().count;
-  const pending = db.prepare(`SELECT COUNT(*) as count FROM documents WHERE status IN ('PENDING', 'PROCESSING')`).get().count;
+async function getMetrics() {
+  const { data: docs, error: docError } = await supabase
+    .from('documents')
+    .select('status, processing_ms, created_at, filename, id');
   
-  const avgProcessingMs = db.prepare(`SELECT AVG(processing_ms) as avg FROM documents WHERE status = 'COMPLETED'`).get().avg || 0;
+  if (docError) throw docError;
+
+  const total = docs.length;
+  const completedDocs = docs.filter(d => d.status === 'COMPLETED');
+  const completed = completedDocs.length;
+  const failed = docs.filter(d => d.status === 'FAILED').length;
+  const pending = docs.filter(d => ['PENDING', 'PROCESSING'].includes(d.status)).length;
+  
+  const avgProcessingMs = completed > 0 
+    ? completedDocs.reduce((acc, d) => acc + (d.processing_ms || 0), 0) / completed 
+    : 0;
   
   const successRate = total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0;
 
-  const fieldStats = db.prepare(`
-    SELECT 
-      SUM(CASE WHEN vendor_name IS NOT NULL THEN 1 ELSE 0 END) as vendor_name,
-      SUM(CASE WHEN invoice_number IS NOT NULL THEN 1 ELSE 0 END) as invoice_number,
-      SUM(CASE WHEN invoice_date IS NOT NULL THEN 1 ELSE 0 END) as invoice_date,
-      SUM(CASE WHEN currency IS NOT NULL THEN 1 ELSE 0 END) as currency,
-      SUM(CASE WHEN total_amount IS NOT NULL THEN 1 ELSE 0 END) as total_amount,
-      SUM(CASE WHEN tax_amount IS NOT NULL THEN 1 ELSE 0 END) as tax_amount
-    FROM extractions e
-    JOIN documents d ON e.document_id = d.id
-    WHERE d.status = 'COMPLETED'
-  `).get() || {};
+  const { data: extractions, error: extError } = await supabase
+    .from('extractions')
+    .select('vendor_name, invoice_number, invoice_date, currency, total_amount, tax_amount, validation_errors');
+
+  if (extError) throw extError;
 
   const field_extraction_rates = {};
-  for (const field of ['vendor_name', 'invoice_number', 'invoice_date', 'currency', 'total_amount', 'tax_amount']) {
-    field_extraction_rates[field] = completed > 0 ? Number(((fieldStats[field] || 0) / completed * 100).toFixed(1)) : 0;
-  }
-
-  const recent_processing_times = db.prepare(`
-    SELECT id, filename, processing_ms, created_at
-    FROM documents
-    WHERE status = 'COMPLETED'
-    ORDER BY created_at DESC
-    LIMIT 20
-  `).all();
-
-  const allExtractions = db.prepare(`SELECT validation_errors FROM extractions WHERE validation_errors IS NOT NULL`).all();
-  const errorCounts = {};
+  const fields = ['vendor_name', 'invoice_number', 'invoice_date', 'currency', 'total_amount', 'tax_amount'];
   
-  for (const row of allExtractions) {
-    try {
-      const errors = JSON.parse(row.validation_errors);
-      for (const err of errors) {
-        errorCounts[err] = (errorCounts[err] || 0) + 1;
-      }
-    } catch (e) {
-      // ignore parse errors
-    }
+  for (const field of fields) {
+    const count = extractions.filter(e => e[field] !== null).length;
+    field_extraction_rates[field] = completed > 0 ? Number((count / completed * 100).toFixed(1)) : 0;
   }
+
+  const recent_processing_times = completedDocs
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 20)
+    .map(d => ({ id: d.id, filename: d.filename, processing_ms: d.processing_ms, created_at: d.created_at }));
+
+  const errorCounts = {};
+  extractions.forEach(e => {
+    if (e.validation_errors && Array.isArray(e.validation_errors)) {
+      e.validation_errors.forEach(err => {
+        errorCounts[err] = (errorCounts[err] || 0) + 1;
+      });
+    }
+  });
 
   const common_validation_errors = Object.entries(errorCounts)
     .map(([error, count]) => ({ error, count }))

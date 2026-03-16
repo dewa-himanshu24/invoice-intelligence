@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "better-sqlite3": "^9.4.3",
+    "@supabase/supabase-js": "^2.99.1",
     "bull": "^4.12.2",
     "cors": "^2.8.5",
     "dayjs": "^1.11.10",

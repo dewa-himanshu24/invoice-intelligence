@@ -5,9 +5,6 @@ const path = require('path');
 const logger = require('./config/logger');
 const errorHandler = require('./middleware/errorHandler');
 
-// Initialize database
-require('./config/database');
-
 // Register Bull processor
 require('./services/workerService');
 
@@ -31,6 +28,7 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   logger.info(`Server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
 
 module.exports = app;

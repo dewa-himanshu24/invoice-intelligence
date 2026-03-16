@@ -83,11 +83,7 @@ export function useUpload() {
       files.forEach(file => {
         formData.append('invoices', file);
       });
-      const res = await client.post('/documents', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      const res = await client.post('/documents', formData);
       return res.data;
     },
     onSuccess: () => {

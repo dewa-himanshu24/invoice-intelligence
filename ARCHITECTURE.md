@@ -1,28 +1,28 @@
 # System Architecture
 
-The Document Intelligence System is a decoupled, asynchronous, full-stack web application designed for robust and scalable PDF processing using generative AI. It consists of a React frontend and an Express Node.js backend, backed by SQLite for persistence and Redis/Bull for background job management.
+The Document Intelligence System is a decoupled, asynchronous, full-stack web application designed for robust and scalable PDF processing using generative AI. It consists of a React frontend and an Express Node.js backend, backed by **Supabase (PostgreSQL)** for persistence and **Redis/Bull** for background job management.
 
 ## Component Descriptions
 
 - **Frontend (React + Vite):** A modern SPA built with Tailwind CSS, utilizing TanStack Query for robust data fetching and polling. Recharts is used for dashboard visualization.
 - **Backend (Node.js + Express):** A RESTful API that handles file uploads (Multer), data serving, and queuing.
-- **Database (SQLite via better-sqlite3):** A zero-config, file-based database. \`better-sqlite3\` provides fast, synchronous execution ideal for simple, single-server applications.
+- **Database (Supabase / PostgreSQL):** A cloud-hosted PostgreSQL database provided by Supabase. This migration from SQLite enables better scalability, centralized data management, and simplified deployment.
 - **Message Queue (Bull + Redis):** Manages the asynchronous execution of PDF extraction tasks to ensure the main event loop remains unblocked.
 - **AI Integration (@google/generative-ai):** Interfaces with Gemini 1.5 Flash to extract structured JSON from raw invoice text.
 
 ## Full Async Data Flow
 
-1. **Upload:** Client submits a multipart form request to \`POST /api/documents\`.
-2. **Multer:** Middleware intercepts the request, validates the files, and saves the PDFs to the \`/uploads\` directory.
-3. **DB Insert:** The controller generates a UUID for each file and synchronously inserts a row into the \`documents\` table with a \`PENDING\` status.
+1. **Upload:** Client submits a multipart form request to `POST /api/documents`.
+2. **Multer:** Middleware intercepts the request, validates the files, and saves the PDFs to the `/uploads` directory.
+3. **DB Insert:** The controller generates a UUID for each file and asynchronously inserts a row into the Supabase `documents` table with a `PENDING` status.
 4. **Bull Queue:** A job containing the file path and document ID is added to the Redis-backed Bull queue.
 5. **Immediate Response:** The server immediately returns an HTTP 202 Accepted response.
-6. **Worker:** A background worker picks up the job, updating the database status to \`PROCESSING\`.
+6. **Worker:** A background worker picks up the job, updating the Supabase document status to `PROCESSING`.
 7. **pdf-parse:** The worker reads the PDF and extracts raw text.
 8. **Gemini:** The text is injected into the selected prompt template and sent to the Gemini API for structured JSON extraction.
 9. **Validate:** The result is passed through the Validation Service to check required fields, normalize dates/currencies, calculate math accuracy, and generate a confidence score.
-10. **DB Update:** The extraction results and final status (\`COMPLETED\` or \`FAILED\`) are saved to the database.
-11. **API / React:** The frontend, which has been polling the \`GET /api/documents\` endpoint, receives the updated status and renders the extracted data.
+10. **DB Update:** The extraction results and final status (`COMPLETED` or `FAILED`) are saved to the Supabase `extractions` and `documents` tables.
+11. **API / React:** The frontend, which has been polling the `GET /api/documents` endpoint, receives the updated status and renders the extracted data.
 
 ## Why Bull + Redis?
 
@@ -38,7 +38,7 @@ Using Bull + Redis provides:
 
 ## Architecture Diagram
 
-\`\`\`text
+```text
 +-------------------+       HTTP POST       +----------------------+
 |                   |---------------------->|                      |
 |   React Frontend  |                       |   Express Backend    |
@@ -51,8 +51,8 @@ Using Bull + Redis provides:
           |                                            v
 +---------+---------+                       +----------+-----------+
 |                   |     2. Read status    |                      |
-|  SQLite Database  |<----------------------|     Bull Queue       |
-| (better-sqlite3)  |                       |     (Redis)          |
+|     Supabase      |<----------------------|     Bull Queue       |
+|   (PostgreSQL)    |                       |     (Redis)          |
 |                   |<----------------------|                      |
 +---------+---------+     4. Update DB      +----------+-----------+
           ^               (COMPLETED)                  |
@@ -71,4 +71,4 @@ Using Bull + Redis provides:
                                             |  Google Gemini API   |
                                             |                      |
                                             +----------------------+
-\`\`\`
+```
