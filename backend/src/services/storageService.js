@@ -10,7 +10,10 @@ async function insertDocument({ id, filename, filePath }) {
       status: 'PENDING' 
     }]);
 
-  if (error) throw error;
+  if (error) {
+      console.log('~ list error', error);
+    throw error
+  };
 }
 
 async function updateDocumentStatus(id, status) {
@@ -122,6 +125,7 @@ async function listDocuments(statusFilter) {
   }
 
   const { data, error } = await query;
+  console.log('~ list error', error);
   if (error) throw error;
   
   return data.map(row => ({
