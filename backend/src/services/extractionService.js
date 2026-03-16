@@ -2,11 +2,24 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const logger = require('../config/logger');
 
 async function extract(filePath, promptVersion) {
   try {
     const dataBuffer = fs.readFileSync(filePath);
-    const pdfData = await pdfParse(dataBuffer);
+    let pdfData;
+    try {
+      pdfData = await pdfParse(dataBuffer);
+    } catch (pdfError) {
+      logger.error(`PDF Parse Error for ${filePath}: ${pdfError.message}`);
+      if (pdfError.message.includes('bad XRef entry')) {
+        // Some PDFs have bad XRef but can still be parsed if we are lucky
+        // or we could try a different approach.
+        // For now, let's wrap it in a more descriptive error.
+        throw new Error(`The PDF file is corrupted (bad XRef entry). Please try a different file or repair the PDF.`);
+      }
+      throw pdfError;
+    }
     const rawText = pdfData.text;
 
     const promptPath = path.join(__dirname, '../prompts', `${promptVersion}.txt`);
