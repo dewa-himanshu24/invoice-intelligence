@@ -1,34 +1,27 @@
-You are an invoice data extraction AI. Extract structured fields from the 
-invoice text below. Return ONLY a valid JSON object. No explanation, no 
-markdown code fences, no extra text — just the raw JSON.
+Extract invoice data from the text below as JSON.
 
-Return this exact structure:
+Structure:
 {
-  "vendor_name": "<string or null>",
-  "invoice_number": "<string or null>",
-  "invoice_date": "<string or null>",
-  "currency": "<ISO currency code string or null>",
-  "total_amount": <number or null>,
-  "tax_amount": <number or null>,
+  "vendor_name": "<string|null>",
+  "invoice_number": "<string|null>",
+  "invoice_date": "<string|null>",
+  "currency": "<ISO string|null>",
+  "total_amount": <number|null>,
+  "tax_amount": <number|null>,
   "line_items": [
     {
       "description": "<string>",
-      "quantity": <number or null>,
-      "unit_price": <number or null>,
-      "line_total": <number or null>
+      "quantity": <number|null>,
+      "unit_price": <number|null>,
+      "line_total": <number|null>
     }
   ]
 }
 
-Field extraction rules:
-- vendor_name: look for Vendor, Supplier, Biller, Bill From, Company, From
-- invoice_number: look for Invoice No, Invoice #, Bill ID, Inv #, Reference, Ref No
-- invoice_date: return the date exactly as found in the document
-- currency: detect from symbols ($=USD, €=EUR, £=GBP, ₹=INR) or explicit text
-- total_amount: final total due, strip currency symbols, return as number
-- tax_amount: VAT, GST, Tax, Tax Amount — return as number
-- line_items: extract ALL rows from the items/services table
-- Use null for any field not found
+Rules:
+- currency: symbol or text to ISO (USD, EUR, GBP, etc.)
+- line_items: extract all rows
+- Use null for missing fields
 
 Invoice text:
 {{INVOICE_TEXT}}

@@ -13,14 +13,16 @@ async function extract(filePath, promptVersion) {
     } catch (pdfError) {
       logger.error(`PDF Parse Error for ${filePath}: ${pdfError.message}`);
       if (pdfError.message.includes('bad XRef entry')) {
-        // Some PDFs have bad XRef but can still be parsed if we are lucky
-        // or we could try a different approach.
-        // For now, let's wrap it in a more descriptive error.
         throw new Error(`The PDF file is corrupted (bad XRef entry). Please try a different file or repair the PDF.`);
       }
       throw pdfError;
     }
-    const rawText = pdfData.text;
+
+    // Token Optimization: Clean text by removing excessive whitespace and newlines
+    const rawText = pdfData.text
+      .replace(/\n\s*\n/g, '\n') // Remove empty lines
+      .replace(/[ \t]+/g, ' ')   // Collapse multiple spaces/tabs
+      .trim();
 
     const promptPath = path.join(__dirname, '../prompts', `${promptVersion}.txt`);
     let promptTemplate = '';
@@ -33,23 +35,28 @@ async function extract(filePath, promptVersion) {
     const finalPrompt = promptTemplate.replace('{{INVOICE_TEXT}}', rawText);
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    
+    // Token Optimization: Use responseMimeType: 'application/json' 
+    // This allows us to remove "No explanation, no markdown" instructions from the prompt later
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-flash-latest',
+      generationConfig: { responseMimeType: 'application/json' }
+    });
 
     const result = await model.generateContent(finalPrompt);
-    let responseText = result.response.text();
-
-    // Strip markdown fences if present
-    if (responseText.startsWith('```json')) {
-      responseText = responseText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (responseText.startsWith('```')) {
-      responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
+    const responseText = result.response.text();
 
     let parsedObject;
     try {
       parsedObject = JSON.parse(responseText);
     } catch (parseError) {
-      throw new Error('Gemini returned invalid JSON: ' + responseText.slice(0, 200));
+      // Fallback for some older versions or if JSON is wrapped
+      let cleaned = responseText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      try {
+        parsedObject = JSON.parse(cleaned);
+      } catch (e) {
+        throw new Error('Gemini returned invalid JSON: ' + responseText.slice(0, 200));
+      }
     }
 
     return { extractedData: parsedObject, promptVersion };
