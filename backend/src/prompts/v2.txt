@@ -1,0 +1,34 @@
+You are an invoice data extraction AI. Extract structured fields from the 
+invoice text below. Return ONLY a valid JSON object. No explanation, no 
+markdown code fences, no extra text — just the raw JSON.
+
+Return this exact structure:
+{
+  "vendor_name": "<string or null>",
+  "invoice_number": "<string or null>",
+  "invoice_date": "<string or null>",
+  "currency": "<ISO currency code string or null>",
+  "total_amount": <number or null>,
+  "tax_amount": <number or null>,
+  "line_items": [
+    {
+      "description": "<string>",
+      "quantity": <number or null>,
+      "unit_price": <number or null>,
+      "line_total": <number or null>
+    }
+  ]
+}
+
+Field extraction rules:
+- vendor_name: look for Vendor, Supplier, Biller, Bill From, Company, From
+- invoice_number: look for Invoice No, Invoice #, Bill ID, Inv #, Reference, Ref No
+- invoice_date: return the date exactly as found in the document
+- currency: detect from symbols ($=USD, €=EUR, £=GBP, ₹=INR) or explicit text
+- total_amount: final total due, strip currency symbols, return as number
+- tax_amount: VAT, GST, Tax, Tax Amount — return as number
+- line_items: extract ALL rows from the items/services table
+- Use null for any field not found
+
+Invoice text:
+{{INVOICE_TEXT}}
