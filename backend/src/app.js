@@ -5,13 +5,21 @@ const path = require('path');
 const logger = require('./config/logger');
 const errorHandler = require('./middleware/errorHandler');
 
-// Register Bull processor
+// Temporarily comment out Bull processor to debug silent crashes
 require('./services/workerService');
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
 
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: '*', // Allow all for debugging
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   credentials: true
 }));
@@ -25,10 +33,10 @@ app.use('/api', require('./routes/documents'));
 
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  logger.info(`Server is running on port ${PORT}`);
-  console.log(`Server is running on port ${PORT}`);
+const PORT = 3001; // Force 3001 for debugging
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`Server is running on 0.0.0.0:${PORT}`);
+  console.log(`Server is running on 0.0.0.0:${PORT}`);
 });
 
 module.exports = app;

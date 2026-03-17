@@ -1,8 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
-const crypto = require('crypto');
-const fs = require('fs');
 const storageService = require('../services/storageService');
 const invoiceQueue = require('../config/queue');
+const logger = require('../config/logger');
 
 async function uploadDocuments(req, res, next) {
   try {
@@ -10,40 +9,51 @@ async function uploadDocuments(req, res, next) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const documents = [];
-    const promptVersion = process.env.PROMPT_VERSION || 'v2';
+    const promptVersion = req.body.promptVersion || 'v1';
 
-    for (const file of req.files) {
-      const id = uuidv4();
+    const uploadPromises = req.files.map(async (file) => {
+      const documentId = uuidv4();
+      
+      // 1. Upload to Supabase Storage
+      const storagePath = await storageService.uploadFile(
+        file.buffer, 
+        file.originalname, 
+        file.mimetype
+      );
 
+      // 2. Insert record into Supabase 'documents' table
       await storageService.insertDocument({
-        id,
+        id: documentId,
         filename: file.originalname,
-        filePath: file.path
+        filePath: storagePath
       });
 
+      // 3. Add to Bull queue for background processing
       await invoiceQueue.add({
-        documentId: id,
-        filePath: file.path,
+        documentId,
+        filePath: storagePath,
         promptVersion
       });
 
-      documents.push({ id, filename: file.originalname, status: 'PENDING' });
-    }
+      return { id: documentId, filename: file.originalname, status: 'PENDING' };
+    });
+
+    const documents = await Promise.all(uploadPromises);
 
     res.status(202).json({
-      message: 'Upload received',
+      message: 'Upload successful, processing started',
       documents
     });
   } catch (error) {
+    logger.error(`Upload failed: ${error.message}`);
     next(error);
   }
 }
 
 async function getDocuments(req, res, next) {
   try {
-    const statusFilter = req.query.status;
-    const documents = await storageService.listDocuments(statusFilter);
+    const { status } = req.query;
+    const documents = await storageService.listDocuments(status);
     res.json(documents);
   } catch (error) {
     next(error);
@@ -52,7 +62,8 @@ async function getDocuments(req, res, next) {
 
 async function getDocument(req, res, next) {
   try {
-    const document = await storageService.getDocument(req.params.id);
+    const { id } = req.params;
+    const document = await storageService.getDocument(id);
     if (!document) {
       return res.status(404).json({ error: 'Document not found' });
     }
@@ -64,17 +75,10 @@ async function getDocument(req, res, next) {
 
 async function updateDocumentCorrection(req, res, next) {
   try {
-    const document = await storageService.getDocument(req.params.id);
-    if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-
-    await storageService.saveCorrection(req.params.id, req.body);
-    
-    res.json({
-      success: true,
-      corrected_data: req.body
-    });
+    const { id } = req.params;
+    const { correctedData } = req.body;
+    await storageService.saveCorrection(id, correctedData);
+    res.json({ message: 'Correction saved successfully' });
   } catch (error) {
     next(error);
   }
@@ -82,28 +86,20 @@ async function updateDocumentCorrection(req, res, next) {
 
 async function reprocessDocument(req, res, next) {
   try {
-    const id = req.params.id;
-    const document = await storageService.getDocument(id);
+    const { id } = req.params;
+    const { promptVersion = 'v1' } = req.body;
     
-    if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
+    const doc = await storageService.getDocument(id);
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
 
     await storageService.updateDocumentStatus(id, 'PENDING');
-    
-    const promptVersion = process.env.PROMPT_VERSION || 'v2';
-    
     await invoiceQueue.add({
       documentId: id,
-      filePath: document.file_path,
+      filePath: doc.file_path,
       promptVersion
     });
 
-    res.status(202).json({
-      message: 'Reprocessing queued',
-      id,
-      status: 'PENDING'
-    });
+    res.json({ message: 'Reprocessing started' });
   } catch (error) {
     next(error);
   }

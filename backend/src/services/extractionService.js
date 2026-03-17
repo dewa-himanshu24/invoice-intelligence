@@ -3,9 +3,11 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../config/logger');
 
+// Reuse the instance
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+
 async function extract(filePath, promptVersion) {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  
   try {
     // 1. Read file as base64 for Gemini multimodal input
     const dataBuffer = fs.readFileSync(filePath);
@@ -23,7 +25,7 @@ async function extract(filePath, promptVersion) {
     const finalPrompt = promptTemplate.replace('{{INVOICE_TEXT}}', 'the attached document');
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-flash-lite',
+      model: DEFAULT_MODEL,
       generationConfig: { responseMimeType: 'application/json' }
     });
 

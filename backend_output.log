@@ -1,0 +1,8 @@
+
+> invoice-intelligence-backend@1.0.0 dev
+> node --watch src/app.js
+
+[32minfo[39m: Server is running on 0.0.0.0:3001 {"timestamp":"2026-03-17T11:02:23.295Z"}
+Server is running on 0.0.0.0:3001
+[31merror[39m: Upload failed: new row violates row-level security policy {"timestamp":"2026-03-17T11:02:25.247Z"}
+[31merror[39m: new row violates row-level security policy {"stack":"StorageApiError: new row violates row-level security policy\n    at /Users/dewa/Desktop/ai_DIS/invoice-intelligence/backend/node_modules/@supabase/storage-js/dist/index.cjs:268:11\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)","timestamp":"2026-03-17T11:02:25.248Z"}

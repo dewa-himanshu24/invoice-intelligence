@@ -1,4 +1,41 @@
 const supabase = require('../config/supabase');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+
+const BUCKET_NAME = 'invoices';
+
+async function uploadFile(buffer, filename, mimetype) {
+  const uniqueName = `${Date.now()}-${filename}`;
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .upload(uniqueName, buffer, {
+      contentType: mimetype,
+      upsert: true
+    });
+
+  if (error) throw error;
+  return data.path;
+}
+
+async function downloadFile(storagePath) {
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .download(storagePath);
+
+  if (error) throw error;
+  
+  const tempDir = path.join(__dirname, '../../uploads');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const tempFilePath = path.join(tempDir, `temp-${path.basename(storagePath)}`);
+  const buffer = Buffer.from(await data.arrayBuffer());
+  fs.writeFileSync(tempFilePath, buffer);
+  
+  return tempFilePath;
+}
 
 async function insertDocument({ id, filename, filePath }) {
   const { error } = await supabase
@@ -11,9 +48,9 @@ async function insertDocument({ id, filename, filePath }) {
     }]);
 
   if (error) {
-      console.log('~ list error', error);
-    throw error
-  };
+    console.log('~ insert error', error);
+    throw error;
+  }
 }
 
 async function updateDocumentStatus(id, status) {
@@ -88,7 +125,7 @@ async function upsertExtraction(documentId, extractedData, validationResult) {
   } else {
     const { error } = await supabase
       .from('extractions')
-      .insert([{ id: require('uuid').v4(), ...extractionData }]);
+      .insert([{ id: uuidv4(), ...extractionData }]);
     if (error) throw error;
   }
 }
@@ -125,7 +162,6 @@ async function listDocuments(statusFilter) {
   }
 
   const { data, error } = await query;
-  console.log('~ list error', error);
   if (error) throw error;
   
   return data.map(row => ({
@@ -145,6 +181,7 @@ async function saveCorrection(id, correctedData) {
 }
 
 async function getMetrics() {
+  // Fetch only necessary fields for metrics
   const { data: docs, error: docError } = await supabase
     .from('documents')
     .select('status, processing_ms, created_at, filename, id');
@@ -163,6 +200,7 @@ async function getMetrics() {
   
   const successRate = total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0;
 
+  // For field rates and errors, we only need a few fields
   const { data: extractions, error: extError } = await supabase
     .from('extractions')
     .select('vendor_name, invoice_number, invoice_date, currency, total_amount, tax_amount, validation_errors');
@@ -172,19 +210,19 @@ async function getMetrics() {
   const field_extraction_rates = {};
   const fields = ['vendor_name', 'invoice_number', 'invoice_date', 'currency', 'total_amount', 'tax_amount'];
   
-  for (const field of fields) {
-    const count = extractions.filter(e => e[field] !== null).length;
+  fields.forEach(field => {
+    const count = extractions.filter(e => e[field] !== null && e[field] !== '').length;
     field_extraction_rates[field] = completed > 0 ? Number((count / completed * 100).toFixed(1)) : 0;
-  }
+  });
 
   const recent_processing_times = completedDocs
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 20)
+    .slice(0, 10) // Reduced from 20 to 10 for dashboard performance
     .map(d => ({ id: d.id, filename: d.filename, processing_ms: d.processing_ms, created_at: d.created_at }));
 
   const errorCounts = {};
   extractions.forEach(e => {
-    if (e.validation_errors && Array.isArray(e.validation_errors)) {
+    if (Array.isArray(e.validation_errors)) {
       e.validation_errors.forEach(err => {
         errorCounts[err] = (errorCounts[err] || 0) + 1;
       });
@@ -210,6 +248,8 @@ async function getMetrics() {
 }
 
 module.exports = {
+  uploadFile,
+  downloadFile,
   insertDocument,
   updateDocumentStatus,
   updateDocumentCompleted,

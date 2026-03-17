@@ -4,21 +4,24 @@ The Document Intelligence System is a decoupled, asynchronous, full-stack web ap
 
 ## Component Descriptions
 
-- **Frontend (React + Vite):** A modern SPA built with Tailwind CSS, utilizing TanStack Query for robust data fetching and polling. Recharts is used for dashboard visualization.
-- **Backend (Node.js + Express):** A RESTful API that handles file uploads (Multer), data serving, and queuing.
-- **Database (Supabase / PostgreSQL):** A cloud-hosted PostgreSQL database provided by Supabase. This migration from SQLite enables better scalability, centralized data management, and simplified deployment.
+- **Frontend (React + Vite):** A modern SPA built with Tailwind CSS, utilizing TanStack Query for robust data fetching and polling. Recharts is used for dashboard visualization. **Optimizations:** Implemented adaptive polling intervals and optimistic UI updates for manual corrections.
+- **Backend (Node.js + Express):** A RESTful API that handles file uploads (Multer), data serving, and queuing. **Optimizations:** Parallelized file processing using `Promise.all` during upload to improve throughput for multi-file submissions.
+- **Database (Supabase / PostgreSQL):** A cloud-hosted PostgreSQL database provided by Supabase. This migration from SQLite enables better scalability, centralized data management, and simplified deployment. **Optimizations:** Refined metrics aggregation to fetch only necessary fields, reducing memory overhead.
 - **Message Queue (Bull + Redis):** Manages the asynchronous execution of PDF extraction tasks to ensure the main event loop remains unblocked.
-- **AI Integration (@google/generative-ai):** Interfaces with Gemini 1.5 Flash to extract structured JSON from raw invoice text.
+- **AI Integration (@google/generative-ai):** Interfaces with Gemini models (defaulting to **Gemini 2.5 Flash Lite**, configurable via `GEMINI_MODEL`) to extract structured JSON from raw invoice text. **Optimizations:** Global singleton for the Gemini client to reduce initialization overhead.
 
 ## Full Async Data Flow
 
 1. **Upload:** Client submits a multipart form request to `POST /api/documents`.
-2. **Multer:** Middleware intercepts the request, validates the files, and saves the PDFs to the `/uploads` directory.
-3. **DB Insert:** The controller generates a UUID for each file and asynchronously inserts a row into the Supabase `documents` table with a `PENDING` status.
-4. **Bull Queue:** A job containing the file path and document ID is added to the Redis-backed Bull queue.
-5. **Immediate Response:** The server immediately returns an HTTP 202 Accepted response.
-6. **Worker:** A background worker picks up the job, updating the Supabase document status to `PROCESSING`.
-7. **pdf-parse:** The worker reads the PDF and extracts raw text.
+2. **Multer:** Middleware intercepts the request, validates the files, and provides file buffers.
+3. **Parallel Processing:** For each file in the request:
+   - **DB Insert:** Generate a UUID and insert a row into the Supabase `documents` table with a `PENDING` status.
+   - **Supabase Storage:** Upload the file buffer to Supabase Storage.
+   - **Bull Queue:** A job containing the storage path and document ID is added to the Redis-backed Bull queue.
+4. **Immediate Response:** The server returns an HTTP 202 Accepted response after all files are queued.
+5. **Worker:** A background worker picks up the job, updating the Supabase document status to `PROCESSING`.
+... rest of the flow remains unchanged ...
+
 8. **Gemini:** The text is injected into the selected prompt template and sent to the Gemini API for structured JSON extraction.
 9. **Validate:** The result is passed through the Validation Service to check required fields, normalize dates/currencies, calculate math accuracy, and generate a confidence score.
 10. **DB Update:** The extraction results and final status (`COMPLETED` or `FAILED`) are saved to the Supabase `extractions` and `documents` tables.

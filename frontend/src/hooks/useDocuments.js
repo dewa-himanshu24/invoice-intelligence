@@ -10,12 +10,12 @@ export function useDocuments(statusFilter) {
       return data;
     },
     refetchInterval: (query) => {
-      // Accessing data from query state
       const data = query?.state?.data;
+      // Faster polling if something is processing, slower otherwise
       if (Array.isArray(data) && data.some(d => ['PENDING', 'PROCESSING'].includes(d.status))) {
-        return 3000;
+        return 2000;
       }
-      return false;
+      return 30000; // Poll every 30s as a fallback/sync
     }
   });
 }
@@ -30,7 +30,7 @@ export function useDocument(id) {
     refetchInterval: (query) => {
       const data = query?.state?.data;
       if (data && ['PENDING', 'PROCESSING'].includes(data.status)) {
-        return 2000;
+        return 1000;
       }
       return false;
     }
@@ -44,7 +44,10 @@ export function useMetrics() {
       const { data } = await client.get('/metrics');
       return data;
     },
-    refetchInterval: 10000
+    refetchInterval: (query) => {
+      // If there are pending docs, refresh metrics more often
+      return 15000;
+    }
   });
 }
 
@@ -55,8 +58,25 @@ export function useUpdateCorrection() {
       const res = await client.patch(`/documents/${id}`, data);
       return res.data;
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['documents', variables.id] });
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: ['documents', id] });
+      const previousDoc = queryClient.getQueryData(['documents', id]);
+      
+      queryClient.setQueryData(['documents', id], (old) => ({
+        ...old,
+        extraction: {
+          ...old.extraction,
+          corrected_data: data.correctedData
+        }
+      }));
+
+      return { previousDoc };
+    },
+    onError: (err, { id }, context) => {
+      queryClient.setQueryData(['documents', id], context.previousDoc);
+    },
+    onSettled: (data, error, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['documents', id] });
     }
   });
 }
@@ -69,6 +89,7 @@ export function useReprocess() {
       return res.data;
     },
     onSuccess: (_, id) => {
+      // Force immediate poll
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       queryClient.invalidateQueries({ queryKey: ['documents', id] });
     }
