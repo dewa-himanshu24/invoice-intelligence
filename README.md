@@ -1,6 +1,6 @@
 # Document Intelligence System
 
-A complete full-stack system for processing and extracting data from invoice PDFs using Google Gemini 1.5 Flash.
+A complete full-stack system for processing and extracting data from invoice PDFs using Google Gemini 2.5 Flash.
 
 ## Overview
 This system allows users to upload PDF invoices, queues them for asynchronous processing, and extracts structured data (Vendor Name, Invoice Number, Date, Currency, Totals, and Line Items) using an LLM. It includes a React dashboard for monitoring status, reviewing extracted data, correcting errors, and analyzing system metrics.
