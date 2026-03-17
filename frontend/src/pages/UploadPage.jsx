@@ -24,6 +24,12 @@ export default function UploadPage() {
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
   const handleUpload = async () => {
     if (files.length === 0) return;
     try {
@@ -80,7 +86,7 @@ export default function UploadPage() {
                   <div className="w-0 flex-1 flex items-center">
                     <File className="flex-shrink-0 h-5 w-5 text-gray-400" />
                     <span className="ml-2 flex-1 w-0 truncate">{file.name}</span>
-                    <span className="ml-2 flex-shrink-0 text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                    <span className="ml-2 flex-shrink-0 text-gray-500">{formatFileSize(file.size)}</span>
                   </div>
                   <div className="ml-4 flex-shrink-0">
                     <button
