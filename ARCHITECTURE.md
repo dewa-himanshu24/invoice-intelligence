@@ -1,43 +1,75 @@
 # System Architecture
 
-The Document Intelligence System is a decoupled, asynchronous, full-stack web application designed for robust and scalable PDF processing using generative AI. It consists of a React frontend and an Express Node.js backend, backed by **Supabase (PostgreSQL)** for persistence and **Redis/Bull** for background job management.
+The Invoice Intelligence System is a decoupled, asynchronous, full-stack web application designed for robust and scalable PDF processing using generative AI. It consists of a React frontend and an Express Node.js backend, backed by **Supabase (PostgreSQL & Storage)** for persistence and **Redis/Bull** for background job management.
+
+## Project Structure
+
+### Backend
+```text
+backend/
+├── src/
+│   ├── config/             # Config for Logger, Bull Queue, and Supabase client
+│   ├── controllers/        # Express controllers handling API logic
+│   ├── middleware/         # Multer upload config and global error handler
+│   ├── prompts/            # Versioned LLM prompt templates
+│   ├── routes/             # API route definitions (Documents, Metrics)
+│   └── services/           # Core business logic
+│       ├── extractionService.js  # Gemini AI integration and text extraction
+│       ├── storageService.js     # Supabase Storage (S3-compatible) integration
+│       ├── validationService.js  # Schema validation and data normalization
+│       └── workerService.js      # Bull queue consumer for async processing
+├── uploads/                # Temporary local storage for uploads
+└── examples/               # Reference JSON for testing/documentation
+```
+
+### Frontend
+```text
+frontend/
+├── src/
+│   ├── api/                # Axios client configuration
+│   ├── components/         # UI components (ConfidenceBar, Tables, etc.)
+│   ├── hooks/              # Custom React hooks (useDocuments for data fetching)
+│   ├── pages/              # Page components (Dashboard, Upload, Detail)
+│   ├── App.jsx             # React Router and layout
+│   └── main.jsx            # React entry point
+├── tailwind.config.js      # CSS styling configuration
+└── vite.config.js          # Build and proxy configuration
+```
 
 ## Component Descriptions
 
-- **Frontend (React + Vite):** A modern SPA built with Tailwind CSS, utilizing TanStack Query for robust data fetching and polling. Recharts is used for dashboard visualization. **Optimizations:** Implemented adaptive polling intervals and optimistic UI updates for manual corrections.
-- **Backend (Node.js + Express):** A RESTful API that handles file uploads (Multer), data serving, and queuing. **Optimizations:** Parallelized file processing using `Promise.all` during upload to improve throughput for multi-file submissions.
-- **Database (Supabase / PostgreSQL):** A cloud-hosted PostgreSQL database provided by Supabase. This migration from SQLite enables better scalability, centralized data management, and simplified deployment. **Optimizations:** Refined metrics aggregation to fetch only necessary fields, reducing memory overhead.
+- **Frontend (React + Vite):** A modern SPA built with Tailwind CSS, utilizing TanStack Query for robust data fetching and polling. Recharts is used for dashboard visualization.
+- **Backend (Node.js + Express):** A RESTful API that handles file uploads (Multer), data serving, and queuing.
+- **Database & Storage (Supabase):** 
+    - **PostgreSQL:** Stores document metadata and extraction results.
+    - **Storage (Bucket):** Stores the actual PDF files, allowing the worker to access them from anywhere.
 - **Message Queue (Bull + Redis):** Manages the asynchronous execution of PDF extraction tasks to ensure the main event loop remains unblocked.
-- **AI Integration (@google/generative-ai):** Interfaces with Gemini models (defaulting to **Gemini 2.5 Flash Lite**, configurable via `GEMINI_MODEL`) to extract structured JSON from raw invoice text. **Optimizations:** Global singleton for the Gemini client to reduce initialization overhead.
+- **AI Integration (@google/generative-ai):** Interfaces with Gemini models (defaulting to **Gemini 2.0 Flash Lite**) to extract structured JSON from raw invoice text.
 
 ## Full Async Data Flow
 
 1. **Upload:** Client submits a multipart form request to `POST /api/documents`.
-2. **Multer:** Middleware intercepts the request, validates the files, and provides file buffers.
-3. **Parallel Processing:** For each file in the request:
-   - **DB Insert:** Generate a UUID and insert a row into the Supabase `documents` table with a `PENDING` status.
-   - **Supabase Storage:** Upload the file buffer to Supabase Storage.
-   - **Bull Queue:** A job containing the storage path and document ID is added to the Redis-backed Bull queue.
-4. **Immediate Response:** The server returns an HTTP 202 Accepted response after all files are queued.
-5. **Worker:** A background worker picks up the job, updating the Supabase document status to `PROCESSING`.
-... rest of the flow remains unchanged ...
-
-8. **Gemini:** The text is injected into the selected prompt template and sent to the Gemini API for structured JSON extraction.
-9. **Validate:** The result is passed through the Validation Service to check required fields, normalize dates/currencies, calculate math accuracy, and generate a confidence score.
-10. **DB Update:** The extraction results and final status (`COMPLETED` or `FAILED`) are saved to the Supabase `extractions` and `documents` tables.
-11. **API / React:** The frontend, which has been polling the `GET /api/documents` endpoint, receives the updated status and renders the extracted data.
+2. **Multer:** Middleware intercepts the request, validates the files, and saves them temporarily.
+3. **Queueing:** For each file:
+   - A `PENDING` record is created in the Supabase `documents` table.
+   - The file is uploaded to Supabase Storage.
+   - A job is added to the Bull queue with the document ID and storage path.
+4. **Immediate Response:** The server returns an HTTP 202 Accepted response.
+5. **Worker:** A background worker picks up the job, updating the status to `PROCESSING`.
+6. **Download:** The worker downloads the file from Supabase Storage (or uses the local temp file).
+7. **Extraction:** The worker parses the PDF text and sends it to the Gemini API with a specific prompt.
+8. **Validation:** The LLM output is validated, normalized, and scored for confidence.
+9. **Persistence:** Results are saved to the `extractions` table, and the document status is set to `COMPLETED` or `FAILED`.
+10. **UI Update:** The frontend polling mechanism detects the status change and displays the results.
 
 ## Why Bull + Redis?
 
-Processing PDFs with LLMs can take several seconds per file. If this were done synchronously in the Express request handler:
-- The HTTP request would hang, potentially timing out.
-- The Node.js event loop could be blocked.
-- A server restart during processing would lose the upload entirely.
+Processing PDFs with LLMs can take several seconds. If this were done synchronously:
+- The HTTP request would likely timeout.
+- The server's throughput would be severely limited.
+- System crashes would result in lost data.
 
-Using Bull + Redis provides:
-- **Non-blocking uploads:** Users get immediate feedback.
-- **Automatic retries:** If the LLM API fails or returns malformed JSON, Bull can automatically retry the job based on backoff settings.
-- **Job persistence:** Redis stores the queue state, meaning jobs are not lost if the Node.js process crashes.
+Bull + Redis provides **reliability (retries)**, **concurrency control**, and **visibility** into the processing pipeline.
 
 ## Architecture Diagram
 
@@ -49,22 +81,22 @@ Using Bull + Redis provides:
 |                   |       HTTP 202        |                      |
 +---------+---------+                       +----------+-----------+
           ^                                            |
-          | HTTP GET (Polling)                         | 1. Save file to disk
-          |                                            | 2. Insert PENDING to DB
+          | HTTP GET (Polling)                         | 1. Create DB Record
+          |                                            | 2. Upload to Storage
           |                                            v
 +---------+---------+                       +----------+-----------+
-|                   |     2. Read status    |                      |
+|                   |     3. Queue Job      |                      |
 |     Supabase      |<----------------------|     Bull Queue       |
-|   (PostgreSQL)    |                       |     (Redis)          |
+|  (DB & Storage)   |                       |     (Redis)          |
 |                   |<----------------------|                      |
-+---------+---------+     4. Update DB      +----------+-----------+
++---------+---------+     5. Update Status  +----------+-----------+
           ^               (COMPLETED)                  |
-          |                                            | 3. Pick up job
+          |                                            | 4. Pick up job
           |                                            v
           |                                 +----------+-----------+
           +---------------------------------|                      |
                                             |   Worker Processor   |
-                                            | (pdf-parse, Gemini)  |
+                                            | (Gemini Multimodal)  |
                                             |                      |
                                             +----------+-----------+
                                                        |

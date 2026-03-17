@@ -1,16 +1,51 @@
-# Document Intelligence System
+# Invoice Intelligence System
 
-A complete full-stack system for processing and extracting data from invoice PDFs using Google Gemini 2.5 Flash.
+A complete full-stack system for processing and extracting data from invoice PDFs using Google Gemini 2.0 Flash Lite.
 
 ## Overview
 This system allows users to upload PDF invoices, queues them for asynchronous processing, and extracts structured data (Vendor Name, Invoice Number, Date, Currency, Totals, and Line Items) using an LLM. It includes a React dashboard for monitoring status, reviewing extracted data, correcting errors, and analyzing system metrics.
+
+## Project Structure
+
+### Backend
+```text
+backend/
+├── src/
+│   ├── config/             # Configuration (Logger, Queue, Supabase)
+│   ├── controllers/        # Express Route Handlers
+│   ├── middleware/         # Upload and Error Handling Middleware
+│   ├── prompts/            # LLM Prompt Templates (v1, v2)
+│   ├── routes/             # API Route Definitions
+│   └── services/           # Core Business Logic
+│       ├── extractionService.js  # Gemini Integration
+│       ├── storageService.js     # Supabase Storage Integration
+│       ├── validationService.js  # Data Normalization and Validation
+│       └── workerService.js      # Bull Queue Worker
+├── uploads/                # Temporary Local Storage
+└── examples/               # Example JSON Responses
+```
+
+### Frontend
+```text
+frontend/
+├── src/
+│   ├── api/                # Axios Client and API Calls
+│   ├── components/         # Reusable UI Components
+│   ├── hooks/              # Custom React Hooks (useDocuments)
+│   ├── pages/              # Main Page Components
+│   ├── App.jsx             # Main App Component
+│   └── main.jsx            # Entry Point
+├── index.html
+├── tailwind.config.js
+└── vite.config.js
+```
 
 ## Prerequisites
 - Node.js 18+
 - npm
 - Redis (running locally on default port 6379)
 - Google Gemini API Key
-- Supabase Account (for PostgreSQL)
+- Supabase Account (for PostgreSQL and Storage)
 
 ## Setup Steps
 
@@ -55,6 +90,7 @@ This system allows users to upload PDF invoices, queues them for asynchronous pr
          created_at TIMESTAMPTZ DEFAULT now()
      );
      ```
+   - Create a storage bucket named `invoices` in your Supabase project and make it public (or adjust the `storageService.js` if you prefer private buckets).
 
 3. **Backend Setup:**
    ```bash
@@ -65,10 +101,11 @@ This system allows users to upload PDF invoices, queues them for asynchronous pr
    # - GEMINI_API_KEY
    # - SUPABASE_URL
    # - SUPABASE_ANON_KEY
+   # - GEMINI_MODEL=gemini-2.0-flash-lite
    mkdir -p uploads
    npm run dev
    ```
-   The backend will start on `http://localhost:3000`.
+   The backend will start on `http://localhost:3001`.
 
 4. **Frontend Setup:**
    Open a new terminal:
@@ -82,50 +119,45 @@ This system allows users to upload PDF invoices, queues them for asynchronous pr
 ## How the Queue Works
 To prevent the web server from blocking during long LLM calls, the system uses an asynchronous processing pattern:
 1. The user uploads PDFs via the `POST /api/documents` endpoint.
-2. Files are saved to disk, Supabase document rows are inserted with a status of `PENDING`, and jobs are added to a Bull queue.
+2. Files are temporarily saved to disk, Supabase document rows are inserted with a status of `PENDING`, files are uploaded to Supabase Storage, and jobs are added to a Bull queue.
 3. The API immediately returns an HTTP 202 Accepted response.
 4. A background worker picks up the jobs from the Redis queue, updates the status to `PROCESSING` in Supabase, calls the Gemini API, runs validation, and saves the final result (marking it `COMPLETED` or `FAILED`).
 5. The React frontend polls `GET /api/documents` to show real-time status updates to the user.
-
-## Prompt Versioning
-The system supports different extraction prompts. The active prompt is configured via `PROMPT_VERSION` in the `.env` file.
-- `v1`: A basic JSON extraction prompt.
-- `v2`: An advanced prompt optimized for token usage and JSON reliability.
 
 ## API Reference
 
 ### Upload Invoices
 ```bash
-curl -X POST http://localhost:3000/api/documents \
+curl -X POST http://localhost:3001/api/documents \
   -F "invoices=@invoice1.pdf" \
   -F "invoices=@invoice2.pdf"
 ```
 
 ### List Documents
 ```bash
-curl http://localhost:3000/api/documents
+curl http://localhost:3001/api/documents
 # With status filter:
-curl "http://localhost:3000/api/documents?status=FAILED"
+curl "http://localhost:3001/api/documents?status=FAILED"
 ```
 
 ### Get Single Document
 ```bash
-curl http://localhost:3000/api/documents/<document-id>
+curl http://localhost:3001/api/documents/<document-id>
 ```
 
 ### Update Corrections
 ```bash
-curl -X PATCH http://localhost:3000/api/documents/<document-id> \
+curl -X PATCH http://localhost:3001/api/documents/<document-id> \
   -H "Content-Type: application/json" \
   -d '{"vendor_name": "Corrected Vendor Inc", "total_amount": 1000}'
 ```
 
 ### Reprocess Document
 ```bash
-curl -X POST http://localhost:3000/api/reprocess/<document-id>
+curl -X POST http://localhost:3001/api/reprocess/<document-id>
 ```
 
 ### Get Metrics
 ```bash
-curl http://localhost:3000/api/metrics
+curl http://localhost:3001/api/metrics
 ```
