@@ -1,9 +1,21 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
-import UploadPage from './pages/UploadPage';
-import InvoiceListPage from './pages/InvoiceListPage';
-import InvoiceDetailPage from './pages/InvoiceDetailPage';
-import DashboardPage from './pages/DashboardPage';
-import { UploadCloud, List, BarChart2 } from 'lucide-react';
+import { UploadCloud, List, BarChart2, Loader2 } from 'lucide-react';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Code Splitting - Lazy Loading Pages
+const UploadPage = lazy(() => import('./pages/UploadPage'));
+const InvoiceListPage = lazy(() => import('./pages/InvoiceListPage'));
+const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+    </div>
+  );
+}
 
 function Navigation() {
   return (
@@ -34,20 +46,24 @@ function Navigation() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-gray-50">
-        <Navigation />
-        <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          <Routes>
-            <Route path="/" element={<Navigate to="/upload" replace />} />
-            <Route path="/upload" element={<UploadPage />} />
-            <Route path="/invoices" element={<InvoiceListPage />} />
-            <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <div className="min-h-screen bg-gray-50">
+          <Navigation />
+          <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/upload" replace />} />
+                <Route path="/upload" element={<UploadPage />} />
+                <Route path="/invoices" element={<InvoiceListPage />} />
+                <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+              </Routes>
+            </Suspense>
+          </main>
+        </div>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
