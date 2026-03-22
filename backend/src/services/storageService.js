@@ -48,7 +48,6 @@ async function insertDocument({ id, filename, filePath }) {
     }]);
 
   if (error) {
-    console.log('~ insert error', error);
     throw error;
   }
 }
