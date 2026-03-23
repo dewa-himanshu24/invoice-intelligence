@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useMetrics } from '../hooks/useDocuments';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
@@ -6,24 +6,33 @@ import { FileText, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 export default function DashboardPage() {
   const { data: metrics, isLoading } = useMetrics();
 
+  const extractionRates = useMemo(() => {
+    if (!metrics) return [];
+    return Object.entries(metrics.field_extraction_rates).map(([name, rate]) => ({
+      name: name.replace('_', ' '),
+      rate
+    }));
+  }, [metrics]);
+
+  const recentTimes = useMemo(() => {
+    if (!metrics) return [];
+    return metrics.recent_processing_times.map(t => ({
+      name: t.filename.length > 15 ? t.filename.substring(0, 15) + '...' : t.filename,
+      ms: t.processing_ms
+    })).reverse();
+  }, [metrics]);
+
+  const pieData = useMemo(() => {
+    if (!metrics) return [];
+    return [
+      { name: 'Completed', value: metrics.completed, color: '#10B981' },
+      { name: 'Failed', value: metrics.failed, color: '#EF4444' },
+      { name: 'Pending', value: metrics.pending, color: '#F59E0B' },
+    ].filter(d => d.value > 0);
+  }, [metrics]);
+
   if (isLoading) return <div className="p-8 text-center text-gray-500">Loading metrics...</div>;
   if (!metrics) return null;
-
-  const extractionRates = Object.entries(metrics.field_extraction_rates).map(([name, rate]) => ({
-    name: name.replace('_', ' '),
-    rate
-  }));
-
-  const recentTimes = metrics.recent_processing_times.map(t => ({
-    name: t.filename.length > 15 ? t.filename.substring(0, 15) + '...' : t.filename,
-    ms: t.processing_ms
-  })).reverse();
-
-  const pieData = [
-    { name: 'Completed', value: metrics.completed, color: '#10B981' },
-    { name: 'Failed', value: metrics.failed, color: '#EF4444' },
-    { name: 'Pending', value: metrics.pending, color: '#F59E0B' },
-  ].filter(d => d.value > 0);
 
   return (
     <div className="space-y-6">

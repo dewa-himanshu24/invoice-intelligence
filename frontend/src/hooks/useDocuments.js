@@ -15,7 +15,7 @@ export function useDocuments(statusFilter) {
       if (Array.isArray(data) && data.some(d => ['PENDING', 'PROCESSING'].includes(d.status))) {
         return 2000;
       }
-      return 30000; // Poll every 30s as a fallback/sync
+      return false; // Smart Polling: Pause completely to save network requests
     }
   });
 }
@@ -30,9 +30,9 @@ export function useDocument(id) {
     refetchInterval: (query) => {
       const data = query?.state?.data;
       if (data && ['PENDING', 'PROCESSING'].includes(data.status)) {
-        return 1000;
+        return 2000;
       }
-      return false;
+      return false; // Smart Polling: Pause completely if finished
     }
   });
 }
@@ -55,20 +55,23 @@ export function useUpdateCorrection() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }) => {
-      const res = await client.patch(`/documents/${id}`, data);
+      const res = await client.patch(`/documents/${id}`, { correctedData: data });
       return res.data;
     },
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ['documents', id] });
       const previousDoc = queryClient.getQueryData(['documents', id]);
       
-      queryClient.setQueryData(['documents', id], (old) => ({
-        ...old,
-        extraction: {
-          ...old.extraction,
-          corrected_data: data.correctedData
-        }
-      }));
+      queryClient.setQueryData(['documents', id], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          extraction: {
+            ...old.extraction,
+            corrected_data: data // Optimistic UI Update instantly applied!
+          }
+        };
+      });
 
       return { previousDoc };
     },
